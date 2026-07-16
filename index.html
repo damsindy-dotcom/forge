@@ -241,6 +241,17 @@
   .meal .tx .n { font-weight: 700; }
   .meal .tx .d { font-size: 13px; color: var(--ink2); }
   .meal.ok .tx { opacity: .55; }
+  .shop-cat { font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin: 14px 0 2px; }
+  .shop-cat:first-of-type { margin-top: 4px; }
+  .shop-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .shop-row:first-of-type { border-top: none; }
+  .shop-row .tx { flex: 1; }
+  .shop-row .tx .n { font-weight: 700; }
+  .shop-row .tx .q { font-size: 12.5px; color: var(--ink2); font-variant-numeric: tabular-nums; }
+  .shop-row.done .tx { opacity: .45; text-decoration: line-through; }
+  .shop-edit { display: grid; grid-template-columns: 1fr 90px 1fr 34px; gap: 6px; align-items: center; margin: 6px 0; }
+  .shop-edit input, .shop-edit select { padding: 8px 8px; font-size: 13px; }
+  .shop-edit-head { display: grid; grid-template-columns: 1fr 90px 1fr 34px; gap: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
   .adh-days { display: flex; gap: 6px; align-items: flex-end; height: 54px; margin-top: 10px; }
   .adh-days .col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; height: 100%; }
   .adh-days .b { width: 100%; max-width: 34px; border-radius: 5px 5px 2px 2px; background: var(--chart); min-height: 2px; }
@@ -329,6 +340,7 @@
 const KEY = "forge-app-v1";
 const uid = () => Math.random().toString(36).slice(2, 9);
 const DAYS = ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"];
+const SHOP_CATS = ["Protéines", "Féculents", "Fruits & légumes", "Épicerie"];
 const DAYS_FULL = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 
 function defaultState() {
@@ -383,6 +395,20 @@ function defaultState() {
     supplements: [
       { id: uid(), name: "Créatine", desc: "3–5 g par jour, tous les jours (même au repos)" },
       { id: uid(), name: "Collagène marin", desc: "10 g + vitamine C, ~45 min avant la séance" },
+    ],
+    shopping: [
+      { id: uid(), name: "Skyr", qty: "6 pots", cat: "Protéines", done: false },
+      { id: uid(), name: "Poulet ou dinde", qty: "1 kg", cat: "Protéines", done: false },
+      { id: uid(), name: "Viande maigre / œufs", qty: "1 kg / 12 œufs", cat: "Protéines", done: false },
+      { id: uid(), name: "Whey (protéine en poudre)", qty: "au besoin", cat: "Protéines", done: false },
+      { id: uid(), name: "Flocons d'avoine", qty: "500 g", cat: "Féculents", done: false },
+      { id: uid(), name: "Riz", qty: "1 kg", cat: "Féculents", done: false },
+      { id: uid(), name: "Pommes de terre", qty: "1,5 kg", cat: "Féculents", done: false },
+      { id: uid(), name: "Fruits (pommes, bananes…)", qty: "7", cat: "Fruits & légumes", done: false },
+      { id: uid(), name: "Légumes (brocolis, haricots…)", qty: "1 kg", cat: "Fruits & légumes", done: false },
+      { id: uid(), name: "Amandes", qty: "1 sachet", cat: "Épicerie", done: false },
+      { id: uid(), name: "Créatine", qty: "au besoin", cat: "Épicerie", done: false },
+      { id: uid(), name: "Collagène marin", qty: "au besoin", cat: "Épicerie", done: false },
     ],
     suppLog: {},   // "YYYY-MM-DD": [suppId, ...]
     mealLog: {},   // "YYYY-MM-DD": [mealId, ...]
@@ -931,6 +957,43 @@ function viewNutrition() {
     }).join("") : ""}
   </div>
 
+  ${(() => {
+    const done = S.shopping.filter(i => i.done).length;
+    const total = S.shopping.length;
+    const byCat = SHOP_CATS.map(cat => ({ cat, items: S.shopping.filter(i => i.cat === cat) })).filter(g => g.items.length);
+    return `
+  <div class="card">
+    <div class="row2"><h2>Liste de courses</h2>
+      <span class="pill ${total && done === total ? "good" : ""} num">${done}/${total}</span></div>
+    ${total ? `
+    <div class="chips" style="margin-top:2px">
+      <button data-action="shop-copy">📋 Copier</button>
+      <button data-action="shop-reset">↻ Nouvelle semaine</button>
+    </div>
+    ${byCat.map(g => `
+      <div class="shop-cat">${esc(g.cat)}</div>
+      ${g.items.map(it => `
+        <div class="shop-row ${it.done ? "done" : ""}">
+          <input type="checkbox" data-action="toggle-shop" data-id="${it.id}" ${it.done ? "checked" : ""} aria-label="${esc(it.name)}">
+          <div class="tx"><div class="n">${esc(it.name)}</div>${it.qty ? `<div class="q">${esc(it.qty)}</div>` : ""}</div>
+        </div>`).join("")}`).join("")}
+    ` : `<div class="empty">Ajoute des articles ci-dessous pour construire ta liste.</div>`}
+  </div>
+
+  <div class="card">
+    <div class="row2"><h2>Gérer ma liste</h2>
+      <button class="btn sm ghost" data-action="shop-add">+ Article</button></div>
+    <div class="shop-edit-head"><span>Article</span><span>Quantité</span><span>Rayon</span><span></span></div>
+    ${S.shopping.map(it => `
+      <div class="shop-edit">
+        <input type="text" value="${esc(it.name)}" data-action-change="shop-name" data-id="${it.id}" placeholder="Article">
+        <input type="text" value="${esc(it.qty)}" data-action-change="shop-qty" data-id="${it.id}" placeholder="Qté">
+        <select data-action-change="shop-cat" data-id="${it.id}">${SHOP_CATS.map(c => `<option ${it.cat === c ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
+        <button class="rm" data-action="shop-rm" data-id="${it.id}" aria-label="Supprimer">✕</button>
+      </div>`).join("")}
+  </div>`;
+  })()}
+
   <div class="card">
     <div class="row2"><h2>Mes compléments</h2>
       <button class="btn sm ghost" data-action="supp-add">+ Complément</button></div>
@@ -1365,6 +1428,22 @@ document.addEventListener("click", ev => {
   else if (a === "supp-rm") {
     S.supplements = S.supplements.filter(sp => sp.id !== id); save(); render();
   }
+  else if (a === "shop-add") {
+    S.shopping.push({ id: uid(), name: "", qty: "", cat: SHOP_CATS[0], done: false }); save(); render();
+  }
+  else if (a === "shop-rm") {
+    S.shopping = S.shopping.filter(it => it.id !== id); save(); render();
+  }
+  else if (a === "shop-reset") {
+    S.shopping.forEach(it => { it.done = false; }); save(); render();
+  }
+  else if (a === "shop-copy") {
+    const byCat = SHOP_CATS.map(cat => ({ cat, items: S.shopping.filter(i => i.cat === cat && !i.done) })).filter(g => g.items.length);
+    const text = byCat.map(g => `${g.cat} :\n` + g.items.map(i => `- ${i.name}${i.qty ? ` (${i.qty})` : ""}`).join("\n")).join("\n\n");
+    if (navigator.clipboard) navigator.clipboard.writeText(text || "Liste vide.").catch(() => {});
+    el.textContent = "✓ Copié";
+    setTimeout(() => { el.textContent = "📋 Copier"; }, 1500);
+  }
   else if (a === "log-bw") {
     const v = parseFloat($("#bw-input").value.replace(",", "."));
     if (!v || v <= 0) return;
@@ -1436,6 +1515,13 @@ document.addEventListener("change", ev => {
   }
   else if (a === "supp-name") { const sp = S.supplements.find(x => x.id === el.dataset.id); if (sp) { sp.name = el.value; save(); } }
   else if (a === "supp-desc") { const sp = S.supplements.find(x => x.id === el.dataset.id); if (sp) { sp.desc = el.value; save(); } }
+  else if (a === "toggle-shop") {
+    const it = S.shopping.find(x => x.id === el.dataset.id);
+    if (it) { it.done = el.checked; save(); render(); }
+  }
+  else if (a === "shop-name") { const it = S.shopping.find(x => x.id === el.dataset.id); if (it) { it.name = el.value; save(); } }
+  else if (a === "shop-qty") { const it = S.shopping.find(x => x.id === el.dataset.id); if (it) { it.qty = el.value; save(); } }
+  else if (a === "shop-cat") { const it = S.shopping.find(x => x.id === el.dataset.id); if (it) { it.cat = el.value; save(); render(); } }
   else if (a === "prog-ex") { PROG_EX = el.value; render(); }
   else if (el.id === "import-file") {
     const f = el.files[0];
