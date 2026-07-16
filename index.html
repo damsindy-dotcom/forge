@@ -335,18 +335,19 @@ function defaultState() {
   const ex = (name, sets, rmin, rmax) => ({ id: uid(), name, sets, repsMin: rmin, repsMax: rmax });
   const tpl = (name, exercises) => ({
     id: uid(), name, exercises,
-    cardio: { enabled: true, minutes: 15, incline: 12, speed: 5 },
+    cardio: { enabled: true, minutes: 20, incline: 15, speed: 3.5, recoveryMinutes: 5, recoverySpeed: 1.5 },
     mobility: { enabled: true, minutes: 8 },
   });
   const t1 = tpl("Push — Force", [
-    ex("Développé couché", 4, 6, 10), ex("Développé militaire haltères", 3, 8, 12),
-    ex("Développé incliné haltères", 3, 8, 12), ex("Écarté poulie", 3, 12, 15),
-    ex("Élévations latérales poulie", 3, 12, 15), ex("Extension triceps poulie", 3, 10, 15),
+    ex("Développé couché", 4, 6, 10), ex("Développé épaules poulie", 3, 8, 12),
+    ex("Écarté poulie", 3, 12, 15), ex("Dips", 3, 8, 12),
+    ex("Élévations latérales poulie", 3, 12, 15), ex("Pushdown corde poulie", 3, 10, 15),
+    ex("Extension triceps poulie", 3, 10, 15),
   ]);
   const t2 = tpl("Pull — Force", [
     ex("Rowing barre", 4, 6, 10), ex("Tirage vertical poulie", 4, 8, 12),
     ex("Rowing assis poulie", 3, 10, 12), ex("Face pull poulie", 3, 12, 15),
-    ex("Curl biceps barre", 3, 8, 12), ex("Curl corde poulie", 3, 10, 15),
+    ex("Curl poulie barre", 3, 8, 12), ex("Curl corde poulie", 3, 10, 15),
   ]);
   const t4 = tpl("Legs — Complet", [
     ex("Squat", 4, 5, 8), ex("Soulevé de terre roumain", 3, 8, 12),
@@ -354,13 +355,14 @@ function defaultState() {
     ex("Mollets debout", 4, 10, 15), ex("Gainage (secondes)", 3, 30, 60),
   ]);
   const t3 = tpl("Push — Volume poulie", [
-    ex("Développé haltères couché", 4, 8, 12), ex("Écarté poulie basse (incliné)", 3, 12, 15),
-    ex("Élévations latérales poulie", 4, 12, 15), ex("Dips", 3, 8, 12),
-    ex("Extension triceps corde", 3, 12, 15), ex("Extension triceps au-dessus tête", 3, 12, 15),
+    ex("Développé poulie décliné", 4, 8, 12), ex("Écarté poulie basse (incliné)", 3, 12, 15),
+    ex("Pec deck poulie", 3, 12, 15), ex("Élévations latérales poulie", 4, 12, 15),
+    ex("Dips", 3, 8, 12), ex("Extension triceps corde", 3, 12, 15),
+    ex("Extension triceps poulie unilatérale", 3, 12, 15),
   ]);
   const t5 = tpl("Pull — Bras focus", [
-    ex("Tractions / tirage vertical", 4, 6, 10), ex("Rowing haltère", 3, 8, 12),
-    ex("Curl poulie barre", 4, 10, 12), ex("Curl incliné haltères", 3, 10, 12),
+    ex("Tractions / tirage vertical", 4, 6, 10), ex("Rowing poulie basse unilatéral", 3, 8, 12),
+    ex("Curl poulie barre", 4, 10, 12), ex("Curl poulie basse (banc incliné)", 3, 10, 12),
     ex("Curl marteau corde poulie", 3, 10, 15), ex("Crunch câble", 3, 12, 15),
   ]);
   const t0 = tpl("Badminton + Abdos", [
@@ -394,6 +396,9 @@ let S;
 try { S = Object.assign(defaultState(), JSON.parse(localStorage.getItem(KEY) || "null") || {}); }
 catch { S = defaultState(); }
 S.settings = Object.assign({ weeklyGoal: 6, restSec: 90, goalWeight: 80 }, S.settings);
+S.templates.forEach(t => {
+  if (t.cardio && t.cardio.recoveryMinutes == null) { t.cardio.recoveryMinutes = 0; t.cardio.recoverySpeed = t.cardio.speed; }
+});
 const save = () => localStorage.setItem(KEY, JSON.stringify(S));
 
 /* ── Date helpers ──────────────────────────────────────── */
@@ -453,11 +458,18 @@ const est1RM = (w, r) => r <= 1 ? w : w * (1 + r / 30);
 /* ── Kcal (formule ACSM marche + METs) ─────────────────── */
 const lastBW = () => S.bodyweight.length ? S.bodyweight[S.bodyweight.length - 1].kg : 90;
 
-function cardioKcal(minutes, incline, speed, kg) {
+function cardioPhaseKcal(minutes, incline, speed, kg) {
   const v = speed * 1000 / 60;            // m/min
   const vo2 = 3.5 + 0.1 * v + 1.8 * v * (incline / 100); // ml/kg/min
   return (vo2 / 3.5) * 3.5 * kg / 200 * minutes;
 }
+function cardioKcal(c, kg) {
+  if (!c) return 0;
+  let k = cardioPhaseKcal(c.minutes, c.incline, c.speed, kg);
+  if (c.recoveryMinutes) k += cardioPhaseKcal(c.recoveryMinutes, c.incline, c.recoverySpeed ?? c.speed, kg);
+  return k;
+}
+const cardioTotalMin = c => !c ? 0 : c.minutes + (c.recoveryMinutes || 0);
 
 function workoutKcal(w) {
   const kg = lastBW();
@@ -465,7 +477,7 @@ function workoutKcal(w) {
   const durMin = Math.min(180, Math.max(1, (end - w.startedAt) / 60000));
   const met = /badminton/i.test(w.name) ? 5.5 : 4.5; // badminton > muscu classique
   let cardioMin = 0, ck = 0;
-  if (w.cardio && w.cardio.done) { cardioMin = w.cardio.minutes; ck = cardioKcal(w.cardio.minutes, w.cardio.incline, w.cardio.speed, kg); }
+  if (w.cardio && w.cardio.done) { cardioMin = cardioTotalMin(w.cardio); ck = cardioKcal(w.cardio, kg); }
   const strengthMin = Math.max(0, durMin - cardioMin);
   return Math.round(met * 3.5 * kg / 200 * strengthMin + ck);
 }
@@ -587,7 +599,7 @@ function viewToday() {
     tpl ? `
       <div style="margin:6px 0 12px">
         <b style="font-size:18px">${esc(tpl.name)}</b>
-        <div class="mut">${tpl.exercises.length} exercices${tpl.cardio.enabled ? ` · tapis incliné ${tpl.cardio.minutes} min` : ""}${tpl.mobility.enabled ? ` · mobilité ${tpl.mobility.minutes} min` : ""}</div>
+        <div class="mut">${tpl.exercises.length} exercices${tpl.cardio.enabled ? ` · tapis incliné ${cardioTotalMin(tpl.cardio)} min (niv. ${tpl.cardio.incline})` : ""}${tpl.mobility.enabled ? ` · mobilité ${tpl.mobility.minutes} min` : ""}</div>
       </div>
       <button class="btn big" data-action="start-workout" data-id="${tpl.id}">Démarrer la séance</button>` :
     dates.has(today()) ? `<div class="empty">Séance faite aujourd'hui. Repos mérité. 💪</div>` :
@@ -716,7 +728,7 @@ function viewWorkout() {
     <input type="checkbox" data-action="toggle-cardio" ${w.cardio.done ? "checked" : ""} aria-label="Tapis incliné fait">
     <div class="desc">
       <div class="t">🎿 Tapis incliné — le finisher</div>
-      <div class="s num">${w.cardio.minutes} min · ${w.cardio.incline}% · ${w.cardio.speed} km/h</div>
+      <div class="s num">${w.cardio.minutes} min @ ${w.cardio.speed} km/h · niv. ${w.cardio.incline}${w.cardio.recoveryMinutes ? ` → ${w.cardio.recoveryMinutes} min récup @ ${w.cardio.recoverySpeed} km/h` : ""}</div>
     </div>
   </div>` : ""}
   ${w.mobility ? `
@@ -814,7 +826,7 @@ function viewProgram() {
     ${S.templates.map(t => `
       <div class="tpl-item">
         <div><div class="nm">${esc(t.name)}</div>
-        <div class="ct">${t.exercises.length} exercices${t.cardio.enabled ? ` · tapis ${t.cardio.minutes} min @ ${t.cardio.incline}%` : ""}</div></div>
+        <div class="ct">${t.exercises.length} exercices${t.cardio.enabled ? ` · tapis ${cardioTotalMin(t.cardio)} min · niv. ${t.cardio.incline}` : ""}</div></div>
         <button class="btn sm ghost" data-action="edit-template" data-id="${t.id}">Modifier</button>
       </div>`).join("")}
   </div>`;
@@ -835,10 +847,16 @@ function editTemplateSheet(id) {
     <button class="addset" data-action="tpl-add-ex" data-id="${t.id}">+ Ajouter un exercice</button>
 
     <label class="fld"><input type="checkbox" id="tpl-cardio-on" ${t.cardio.enabled ? "checked" : ""} style="width:17px;height:17px;vertical-align:-3px"> Tapis incliné en fin de séance</label>
+    <div class="mut" style="margin:2px 0 6px">Phase principale</div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
       <div><label class="fld">Minutes</label><input type="number" id="tpl-cardio-min" inputmode="numeric" value="${t.cardio.minutes}"></div>
-      <div><label class="fld">Inclinaison %</label><input type="number" id="tpl-cardio-inc" inputmode="numeric" value="${t.cardio.incline}"></div>
-      <div><label class="fld">Vitesse km/h</label><input type="number" id="tpl-cardio-spd" inputmode="decimal" step="0.5" value="${t.cardio.speed}"></div>
+      <div><label class="fld">Inclinaison (niveau)</label><input type="number" id="tpl-cardio-inc" inputmode="numeric" value="${t.cardio.incline}"></div>
+      <div><label class="fld">Vitesse km/h</label><input type="number" id="tpl-cardio-spd" inputmode="decimal" step="0.1" value="${t.cardio.speed}"></div>
+    </div>
+    <div class="mut" style="margin:10px 0 6px">Phase de récupération</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div><label class="fld">Minutes</label><input type="number" id="tpl-cardio-recmin" inputmode="numeric" value="${t.cardio.recoveryMinutes ?? 5}"></div>
+      <div><label class="fld">Vitesse km/h</label><input type="number" id="tpl-cardio-recspd" inputmode="decimal" step="0.1" value="${t.cardio.recoverySpeed ?? 1.5}"></div>
     </div>
     <label class="fld"><input type="checkbox" id="tpl-mob-on" ${t.mobility.enabled ? "checked" : ""} style="width:17px;height:17px;vertical-align:-3px"> Mobilité en fin de séance</label>
     <div><label class="fld">Minutes de mobilité</label><input type="number" id="tpl-mob-min" inputmode="numeric" value="${t.mobility.minutes}" style="max-width:120px"></div>
@@ -873,9 +891,11 @@ function readTemplateSheet(t) {
   });
   t.exercises = exercises;
   t.cardio.enabled = $("#tpl-cardio-on").checked;
-  t.cardio.minutes = parseInt($("#tpl-cardio-min").value) || 15;
-  t.cardio.incline = parseFloat($("#tpl-cardio-inc").value) || 12;
-  t.cardio.speed = parseFloat($("#tpl-cardio-spd").value) || 5;
+  t.cardio.minutes = parseInt($("#tpl-cardio-min").value) || 20;
+  t.cardio.incline = parseFloat($("#tpl-cardio-inc").value) || 15;
+  t.cardio.speed = parseFloat($("#tpl-cardio-spd").value) || 3.5;
+  t.cardio.recoveryMinutes = parseInt($("#tpl-cardio-recmin").value) || 0;
+  t.cardio.recoverySpeed = parseFloat($("#tpl-cardio-recspd").value) || 1.5;
   t.mobility.enabled = $("#tpl-mob-on").checked;
   t.mobility.minutes = parseInt($("#tpl-mob-min").value) || 8;
 }
@@ -1307,7 +1327,7 @@ document.addEventListener("click", ev => {
   else if (a === "timer-skip") stopTimer();
   else if (a === "timer-preset") startTimer(parseInt(el.dataset.sec));
   else if (a === "new-template") {
-    const t = { id: uid(), name: "Nouvelle séance", exercises: [], cardio: { enabled: true, minutes: 15, incline: 12, speed: 5 }, mobility: { enabled: true, minutes: 8 } };
+    const t = { id: uid(), name: "Nouvelle séance", exercises: [], cardio: { enabled: true, minutes: 20, incline: 15, speed: 3.5, recoveryMinutes: 5, recoverySpeed: 1.5 }, mobility: { enabled: true, minutes: 8 } };
     S.templates.push(t); save(); editTemplateSheet(t.id);
   }
   else if (a === "edit-template") editTemplateSheet(id);
